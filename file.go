@@ -10,13 +10,19 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
+
+type fileWorksheet struct {
+	Name    string
+	zipFile *zip.File
+}
 
 // File is a high level structure providing a slice of Sheet structs
 // to the user.
 type File struct {
-	worksheets     map[string]*zip.File
+	worksheets     []*fileWorksheet
 	referenceTable *RefTable
 	Date1904       bool
 	styles         *xlsxStyleSheet
@@ -28,13 +34,38 @@ type File struct {
 
 const NoRowLimit int = -1
 
+var filePool = sync.Pool{
+	New: func() interface{} {
+		return &File{
+			Sheet:        make(map[string]*Sheet),
+			Sheets:       make([]*Sheet, 0),
+			worksheets:   make([]*fileWorksheet, 0),
+			DefinedNames: make([]*xlsxDefinedName, 0),
+		}
+	},
+}
+
 // Create a new File
 func NewFile() *File {
-	return &File{
-		Sheet:        make(map[string]*Sheet),
-		Sheets:       make([]*Sheet, 0),
-		DefinedNames: make([]*xlsxDefinedName, 0),
+	return filePool.Get().(*File)
+}
+
+func ReleaseFile(file *File) {
+	file.Date1904 = false
+	for k, _ := range file.Sheet {
+		delete(file.Sheet, k)
 	}
+	for _, sheet := range file.Sheet {
+		releaseSheet(sheet)
+	}
+	file.Sheets = file.Sheets[:0]
+
+	file.DefinedNames = file.DefinedNames[:0]
+	file.theme = nil
+	file.referenceTable = nil
+	file.worksheets = file.worksheets[:0]
+
+	filePool.Put(file)
 }
 
 // OpenFile() take the name of an XLSX file and returns a populated

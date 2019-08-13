@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 )
 
 // Sheet is a high level structure intended to provide user access to
@@ -20,6 +21,38 @@ type Sheet struct {
 	SheetViews  []SheetView
 	SheetFormat SheetFormat
 	AutoFilter  *AutoFilter
+}
+
+var sheetPool = sync.Pool{
+	New: func() interface{} {
+		return &Sheet{}
+	},
+}
+
+func acquireSheet() *Sheet {
+	return sheetPool.Get().(*Sheet)
+}
+
+func releaseSheet(sheet *Sheet) {
+	for _, row := range sheet.Rows {
+		releaseRow(row)
+	}
+	sheet.Rows = sheet.Rows[:0]
+
+	for _, col := range sheet.Cols {
+		releaseCol(col)
+	}
+	sheet.Cols = sheet.Cols[:0]
+
+	sheet.File = nil
+	sheet.Name = ""
+	sheet.MaxRow = 0
+	sheet.MaxCol = 0
+	sheet.Hidden = false
+	sheet.Selected = false
+	sheet.SheetViews = nil
+	sheet.SheetFormat = SheetFormat{}
+	sheet.AutoFilter = nil
 }
 
 type SheetView struct {

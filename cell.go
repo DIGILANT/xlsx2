@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -69,6 +70,32 @@ type Cell struct {
 	DataValidation *xlsxCellDataValidation
 }
 
+var cellPool = sync.Pool{
+	New: func() interface{} {
+		return &Cell{}
+	},
+}
+
+func acquireCell() *Cell {
+	return cellPool.Get().(*Cell)
+}
+
+func releaseCell(cell *Cell) {
+	cell.Row = nil
+	cell.Value = ""
+	cell.formula = ""
+	cell.style = nil
+	cell.NumFmt = ""
+	cell.parsedNumFmt = nil
+	cell.date1904 = false
+	cell.Hidden = false
+	cell.HMerge = 0
+	cell.VMerge = 0
+	cell.cellType = 0
+	cell.DataValidation = nil
+	cellPool.Put(cell)
+}
+
 // CellInterface defines the public API of the Cell.
 type CellInterface interface {
 	String() string
@@ -77,7 +104,9 @@ type CellInterface interface {
 
 // NewCell creates a cell and adds it to a row.
 func NewCell(r *Row) *Cell {
-	return &Cell{Row: r}
+	cell := acquireCell()
+	cell.Row = r
+	return cell
 }
 
 // Merge with other cells, horizontally and/or vertically.
