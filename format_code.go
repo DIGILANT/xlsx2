@@ -410,7 +410,7 @@ var formattingCharacters = []string{"0/", "#/", "?/", "E-", "E+", "e-", "e+", "0
 // redundant here: ee, gg, ggg, rr, ss, mm, hh, yyyy, dd, ddd, dddd, mm, mmm, mmmm, mmmmm, ss.0000, ss.000, ss.00, ss.0
 // The .00 type format is very tricky, because it only counts if it comes after ss or s or [ss] or [s]
 // .00 is actually a valid number format by itself.
-var timeFormatCharacters = []string{"m", "d", "yy", "h", "m", "AM/PM", "A/P", "am/pm", "a/p", "r", "g", "e", "b1", "b2", "[hh]", "[h]", "[mm]", "[m]",
+var timeFormatCharacters = []string{"m", "M", "d", "D", "yy", "YY", "h", "m", "AM/PM", "A/P", "am/pm", "a/p", "r", "g", "e", "b1", "b2", "[hh]", "[h]", "[mm]", "[m]",
 	"s.0000", "s.000", "s.00", "s.0", "s", "[ss].0000", "[ss].000", "[ss].00", "[ss].0", "[ss]", "[s].0000", "[s].000", "[s].00", "[s].0", "[s]"}
 
 func splitFormatAndSuffixFormat(format string) (string, string) {
@@ -528,14 +528,18 @@ func (fullFormat *parsedNumberFormat) parseTime(value string, date1904 bool) (st
 		{"mmmm", "%%%%"},
 		{"dddd", "&&&&"},
 		{"dd", "02"},
+		{"DD", "02"},
 		{"d", "2"},
+		{"D", "2"},
 		{"mmm", "Jan"},
 		{"mmss", "0405"},
 		{"ss", "05"},
 		{"mm:", "04:"},
 		{":mm", ":04"},
 		{"mm", "01"},
+		{"MM", "01"},
 		{"am/pm", "pm"},
+		{"AM/PM", "pm"},
 		{"m/", "1/"},
 		{"%%%%", "January"},
 		{"&&&&", "Monday"},
@@ -563,6 +567,14 @@ func (fullFormat *parsedNumberFormat) parseTime(value string, date1904 bool) (st
 	} else {
 		format = strings.Replace(format, "[3]", "3", 1)
 		format = strings.Replace(format, "[15]", "15", 1)
+	}
+	// In some cases date format can be formatted with extra parameters ex: [$-\d\d\d\d\d\d]yyyy/mm/dd] (\d as digit)
+	// to avoid wrong text formatting we will remove the brackets and the content in it.
+	if len(format) > 0 && format[0] == '[' {
+		i := strings.IndexByte(format, ']')
+		if i > 0 {
+			format = format[i+1:]
+		}
 	}
 	return val.Format(format), nil
 }
@@ -593,7 +605,7 @@ func isTimeFormat(format string) bool {
 			i += endQuoteIndex + 1
 		case '$', '-', '+', '/', '(', ')', ':', '!', '^', '&', '\'', '~', '{', '}', '<', '>', '=', ' ':
 			// These symbols are allowed to be used as literal without escaping
-		case ',':
+		case ',', '.':
 			// This is not documented in the XLSX spec as far as I can tell, but Excel and Numbers will include
 			// commas in number formats without escaping them, so this should be supported.
 		default:
