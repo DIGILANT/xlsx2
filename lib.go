@@ -785,6 +785,8 @@ func readSheetsFromZipFile(f *zip.File, file *File, sheetXMLMap map[string]strin
 	if err != nil {
 		return nil, nil, err
 	}
+	defer rc.Close()
+
 	decoder = xml.NewDecoder(rc)
 	err = decoder.Decode(workbook)
 	if err != nil {
@@ -852,6 +854,8 @@ func readSharedStringsFromZipFile(f *zip.File) (*RefTable, error) {
 	if error != nil {
 		return nil, error
 	}
+	defer rc.Close()
+
 	sst = new(xlsxSST)
 	decoder = xml.NewDecoder(rc)
 	error = decoder.Decode(sst)
@@ -874,6 +878,8 @@ func readStylesFromZipFile(f *zip.File, theme *theme) (*xlsxStyleSheet, error) {
 	if error != nil {
 		return nil, error
 	}
+	defer rc.Close()
+
 	style = newXlsxStyleSheet(theme)
 	decoder = xml.NewDecoder(rc)
 	error = decoder.Decode(style)
@@ -896,6 +902,7 @@ func readThemeFromZipFile(f *zip.File) (*theme, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rc.Close()
 
 	var themeXml xlsxTheme
 	err = xml.NewDecoder(rc).Decode(&themeXml)
@@ -962,6 +969,8 @@ func readWorkbookRelationsFromZipFile(workbookRels *zip.File) (WorkBookRels, err
 	if err != nil {
 		return nil, err
 	}
+	defer rc.Close()
+
 	decoder = xml.NewDecoder(rc)
 	wbRelationships = new(xlsxWorkbookRels)
 	err = decoder.Decode(wbRelationships)
@@ -1026,11 +1035,11 @@ func ReadZipReaderWithRowLimit(r *zip.Reader, rowLimit int) (*File, error) {
 		switch v.Name {
 		case "xl/sharedStrings.xml":
 			sharedStrings = v
-		case "xl/workbook.xml":
+		case "xl/workbook.xml", "workbook.xml":
 			workbook = v
-		case "xl/_rels/workbook.xml.rels":
+		case "xl/_rels/workbook.xml.rels", "_rels/workbook.xml.rels":
 			workbookRels = v
-		case "xl/styles.xml":
+		case "xl/styles.xml", "stylesheet.xml":
 			styles = v
 		case "xl/theme/theme1.xml":
 			themeFile = v
