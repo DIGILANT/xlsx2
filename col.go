@@ -1,22 +1,50 @@
 package xlsx
 
+import (
+	"sync"
+)
+
 // Default column width in excel
 const ColWidth = 9.5
 const Excel2006MaxRowCount = 1048576
 const Excel2006MaxRowIndex = Excel2006MaxRowCount - 1
 
 type Col struct {
-	Min            int
-	Max            int
-	Hidden         bool
-	Width          float64
-	Collapsed      bool
-	OutlineLevel   uint8
-	numFmt         string
-	parsedNumFmt   *parsedNumberFormat
-	style          *Style
-	DataValidation []*xlsxCellDataValidation
+	Min             int
+	Max             int
+	Hidden          bool
+	Width           float64
+	Collapsed       bool
+	OutlineLevel    uint8
+	numFmt          string
+	parsedNumFmt    *parsedNumberFormat
+	style           *Style
+	DataValidation  []*xlsxCellDataValidation
 	defaultCellType *CellType
+}
+
+var colPool = sync.Pool{
+	New: func() interface{} {
+		return &Col{}
+	},
+}
+
+func acquireCol() *Col {
+	return colPool.Get().(*Col)
+}
+
+func releaseCol(col *Col) {
+	col.Min = 0
+	col.Max = 0
+	col.style = nil
+	col.Collapsed = false
+	col.OutlineLevel = 0
+	col.numFmt = ""
+	col.parsedNumFmt = nil
+	col.Hidden = false
+	col.defaultCellType = nil
+	col.DataValidation = col.DataValidation[:0]
+	colPool.Put(col)
 }
 
 // SetType will set the format string of a column based on the type that you want to set it to.
@@ -63,12 +91,12 @@ func (c *Col) SetDataValidation(dd *xlsxCellDataValidation, start, end int) {
 	dd.minRow = start
 	dd.maxRow = end
 
-	tmpDD := make([]*xlsxCellDataValidation, 0)
+	c.DataValidation = c.DataValidation[:0]
 	for _, item := range c.DataValidation {
 		if item.maxRow < dd.minRow {
-			tmpDD = append(tmpDD, item) //No intersection
+			c.DataValidation = append(c.DataValidation, item) //No intersection
 		} else if item.minRow > dd.maxRow {
-			tmpDD = append(tmpDD, item) //No intersection
+			c.DataValidation = append(c.DataValidation, item) //No intersection
 		} else if dd.minRow <= item.minRow && dd.maxRow >= item.maxRow {
 			continue //union , item can be ignored
 		} else if dd.minRow >= item.minRow {
@@ -78,20 +106,19 @@ func (c *Col) SetDataValidation(dd *xlsxCellDataValidation, start, end int) {
 
 			if dd.minRow > item.minRow { //header whetherneed to split
 				item.maxRow = dd.minRow - 1
-				tmpDD = append(tmpDD, item)
+				c.DataValidation = append(c.DataValidation, item)
 			}
 			if dd.maxRow < tmpSplit.maxRow { //footer whetherneed to split
 				tmpSplit.minRow = dd.maxRow + 1
-				tmpDD = append(tmpDD, tmpSplit)
+				c.DataValidation = append(c.DataValidation, tmpSplit)
 			}
 
 		} else {
 			item.minRow = dd.maxRow + 1
-			tmpDD = append(tmpDD, item)
+			c.DataValidation = append(c.DataValidation, item)
 		}
 	}
-	tmpDD = append(tmpDD, dd)
-	c.DataValidation = tmpDD
+	c.DataValidation = append(c.DataValidation, dd)
 }
 
 // SetDataValidationWithStart set data validation with a zero basd start row.

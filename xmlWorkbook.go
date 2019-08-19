@@ -164,7 +164,7 @@ type xlsxCalcPr struct {
 }
 
 // Helper function to lookup the file corresponding to a xlsxSheet object in the worksheets map
-func worksheetFileForSheet(sheet xlsxSheet, worksheets map[string]*zip.File, sheetXMLMap map[string]string) *zip.File {
+func worksheetFileForSheet(sheet xlsxSheet, worksheets []*fileWorksheet, sheetXMLMap map[string]string) (zf *zip.File) {
 	sheetName, ok := sheetXMLMap[sheet.Id]
 	if !ok {
 		if sheet.SheetId != "" {
@@ -173,13 +173,19 @@ func worksheetFileForSheet(sheet xlsxSheet, worksheets map[string]*zip.File, she
 			sheetName = fmt.Sprintf("sheet%s", sheet.Id)
 		}
 	}
-	return worksheets[sheetName]
+	for _, ws := range worksheets {
+		if ws.Name == sheetName {
+			zf = ws.zipFile
+			break
+		}
+	}
+	return
 }
 
 // getWorksheetFromSheet() is an internal helper function to open a
 // sheetN.xml file, referred to by an xlsx.xlsxSheet struct, from the XLSX
 // file and unmarshal it an xlsx.xlsxWorksheet struct
-func getWorksheetFromSheet(sheet xlsxSheet, worksheets map[string]*zip.File, sheetXMLMap map[string]string, rowLimit int) (*xlsxWorksheet, error) {
+func getWorksheetFromSheet(sheet xlsxSheet, worksheets []*fileWorksheet, sheetXMLMap map[string]string, rowLimit int) (*xlsxWorksheet, error) {
 	var r io.Reader
 	var decoder *xml.Decoder
 	var worksheet *xlsxWorksheet

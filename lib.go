@@ -276,22 +276,25 @@ func calculateMaxMinFromWorksheet(worksheet *xlsxWorksheet) (minx, miny, maxx, m
 // populate it with empty cells.  All rows start from cell 1 -
 // regardless of the lower bound of the span.
 func makeRowFromSpan(spans string, sheet *Sheet) *Row {
-	var error error
+	var err error
 	var upper int
 	var row *Row
 	var cell *Cell
 
-	row = new(Row)
+	row = acquireRow()
 	row.Sheet = sheet
-	_, upper, error = getRangeFromString(spans)
-	if error != nil {
-		panic(error)
+	_, upper, err = getRangeFromString(spans)
+	if err != nil {
+		panic(err)
 	}
-	error = nil
-	row.Cells = make([]*Cell, upper)
+	err = nil
+	if n := upper - cap(row.Cells); n > 0 {
+		row.Cells = append(row.Cells, make([]*Cell, n)...)
+	}
+	row.Cells = row.Cells[:upper]
+
 	for i := 0; i < upper; i++ {
-		cell = new(Cell)
-		cell.Value = ""
+		cell = acquireCell()
 		row.Cells[i] = cell
 	}
 	return row
@@ -303,7 +306,7 @@ func makeRowFromRaw(rawrow xlsxRow, sheet *Sheet) *Row {
 	var row *Row
 	var cell *Cell
 
-	row = new(Row)
+	row = acquireRow()
 	row.Sheet = sheet
 	upper = -1
 
@@ -324,18 +327,20 @@ func makeRowFromRaw(rawrow xlsxRow, sheet *Sheet) *Row {
 
 	row.OutlineLevel = rawrow.OutlineLevel
 
-	row.Cells = make([]*Cell, upper)
+	if n := upper - cap(row.Cells); n > 0 {
+		row.Cells = append(row.Cells, make([]*Cell, n)...)
+	}
+	row.Cells = row.Cells[:upper]
+
 	for i := 0; i < upper; i++ {
-		cell = new(Cell)
-		cell.Value = ""
+		cell = acquireCell()
 		row.Cells[i] = cell
 	}
 	return row
 }
 
 func makeEmptyRow(sheet *Sheet) *Row {
-	row := new(Row)
-	row.Cells = make([]*Cell, 0)
+	row := acquireRow()
 	row.Sheet = sheet
 	return row
 }
@@ -523,9 +528,7 @@ func fillCellDataFromInlineString(rawcell xlsxC, cell *Cell) {
 // rows from a XSLXWorksheet, populates them with Cells and resolves
 // the value references from the reference table and stores them in
 // the rows and columns.
-func readRowsFromSheet(Worksheet *xlsxWorksheet, file *File, sheet *Sheet, rowLimit int) ([]*Row, []*Col, int, int) {
-	var rows []*Row
-	var cols []*Col
+func readRowsFromSheet(Worksheet *xlsxWorksheet, file *File, sheet *Sheet, rowLimit int) (int, int) {
 	var row *Row
 	var minCol, maxCol, maxRow, colCount, rowCount int
 	var reftable *RefTable
@@ -534,7 +537,7 @@ func readRowsFromSheet(Worksheet *xlsxWorksheet, file *File, sheet *Sheet, rowLi
 	sharedFormulas := map[int]sharedFormula{}
 
 	if len(Worksheet.SheetData.Row) == 0 {
-		return nil, nil, 0, 0
+		return 0, 0
 	}
 	reftable = file.referenceTable
 	if len(Worksheet.Dimension.Ref) > 0 && len(strings.Split(Worksheet.Dimension.Ref, cellRangeChar)) == 2 && rowLimit == NoRowLimit {
@@ -548,11 +551,24 @@ func readRowsFromSheet(Worksheet *xlsxWorksheet, file *File, sheet *Sheet, rowLi
 
 	rowCount = maxRow + 1
 	colCount = maxCol + 1
-	rows = make([]*Row, rowCount)
-	cols = make([]*Col, colCount)
-	for i := range cols {
-		cols[i] = &Col{
-			Hidden: false,
+
+	if n := rowCount - cap(sheet.Rows); n > 0 {
+		sheet.Rows = append(sheet.Rows, make([]*Row, n)...)
+	}
+	sheet.Rows = sheet.Rows[:rowCount]
+
+	if n := colCount - cap(sheet.Cols); n > 0 {
+		sheet.Cols = append(sheet.Cols, make([]*Col, n)...)
+	}
+	sheet.Cols = sheet.Cols[:colCount]
+
+	for i := range sheet.Cols {
+		if sheet.Cols[i] == nil {
+			sheet.Cols[i] = &Col{
+				Hidden: false,
+			}
+		} else {
+			sheet.Cols[i].Hidden = false
 		}
 	}
 
@@ -565,13 +581,13 @@ func readRowsFromSheet(Worksheet *xlsxWorksheet, file *File, sheet *Sheet, rowLi
 			// spreadsheet - we deliberately exclude these
 			// columns.
 			for i := rawcol.Min; i <= rawcol.Max && i <= colCount; i++ {
-				col := &Col{
-					Min:          rawcol.Min,
-					Max:          rawcol.Max,
-					Hidden:       rawcol.Hidden,
-					Width:        rawcol.Width,
-					OutlineLevel: rawcol.OutlineLevel}
-				cols[i-1] = col
+				col := sheet.Cols[i-1]
+				col.Min = rawcol.Min
+				col.Max = rawcol.Max
+				col.Hidden = rawcol.Hidden
+				col.Width = rawcol.Width
+				col.OutlineLevel = rawcol.OutlineLevel
+
 				if file.styles != nil {
 					col.style = file.styles.getStyle(rawcol.Style)
 					col.numFmt, col.parsedNumFmt = file.styles.getNumberFormat(rawcol.Style)
@@ -580,7 +596,7 @@ func readRowsFromSheet(Worksheet *xlsxWorksheet, file *File, sheet *Sheet, rowLi
 		}
 	}
 
-	numRows := len(rows)
+	numRows := rowCount
 	for rowIndex := 0; rowIndex < len(Worksheet.SheetData.Row); rowIndex++ {
 		rawrow := Worksheet.SheetData.Row[rowIndex]
 		// Some spreadsheets will omit blank rows from the
@@ -588,7 +604,7 @@ func readRowsFromSheet(Worksheet *xlsxWorksheet, file *File, sheet *Sheet, rowLi
 		for rawrow.R > (insertRowIndex + 1) {
 			// Put an empty Row into the array
 			if insertRowIndex < numRows {
-				rows[insertRowIndex] = makeEmptyRow(sheet)
+				sheet.Rows[insertRowIndex] = makeEmptyRow(sheet)
 			}
 			insertRowIndex++
 		}
@@ -640,21 +656,21 @@ func readRowsFromSheet(Worksheet *xlsxWorksheet, file *File, sheet *Sheet, rowLi
 				}
 				cell.date1904 = file.Date1904
 				// Cell is considered hidden if the row or the column of this cell is hidden
-				cell.Hidden = rawrow.Hidden || (len(cols) > cellX && cols[cellX].Hidden)
+				cell.Hidden = rawrow.Hidden || (len(sheet.Cols) > cellX && sheet.Cols[cellX].Hidden)
 				insertColIndex++
 			}
 		}
-		if len(rows) > insertRowIndex {
-			rows[insertRowIndex] = row
+		if len(sheet.Rows) > insertRowIndex {
+			sheet.Rows[insertRowIndex] = row
 		}
 		insertRowIndex++
 	}
 
 	// insert trailing empty rows for the rest of the file
 	for ; insertRowIndex < rowCount; insertRowIndex++ {
-		rows[insertRowIndex] = makeEmptyRow(sheet)
+		sheet.Rows[insertRowIndex] = makeEmptyRow(sheet)
 	}
-	return rows, cols, colCount, rowCount
+	return colCount, rowCount
 }
 
 type indexedSheet struct {
@@ -711,9 +727,9 @@ func readSheetFromFile(sc chan *indexedSheet, index int, rsheet xlsxSheet, fi *F
 		sc <- result
 		return err
 	}
-	sheet := new(Sheet)
+	sheet := acquireSheet()
 	sheet.File = fi
-	sheet.Rows, sheet.Cols, sheet.MaxCol, sheet.MaxRow = readRowsFromSheet(worksheet, fi, sheet, rowLimit)
+	sheet.MaxCol, sheet.MaxRow = readRowsFromSheet(worksheet, fi, sheet, rowLimit)
 	sheet.Hidden = rsheet.State == sheetStateHidden || rsheet.State == sheetStateVeryHidden
 	sheet.SheetViews = readSheetViews(worksheet.SheetViews)
 
@@ -774,7 +790,7 @@ func readSheetFromFile(sc chan *indexedSheet, index int, rsheet xlsxSheet, fi *F
 // readSheetsFromZipFile is an internal helper function that loops
 // over the Worksheets defined in the XSLXWorkbook and loads them into
 // Sheet objects stored in the Sheets slice of a xlsx.File struct.
-func readSheetsFromZipFile(f *zip.File, file *File, sheetXMLMap map[string]string, rowLimit int) (map[string]*Sheet, []*Sheet, error) {
+func readSheetsFromZipFile(f *zip.File, file *File, sheetXMLMap map[string]string, rowLimit int) error {
 	var workbook *xlsxWorkbook
 	var err error
 	var rc io.ReadCloser
@@ -783,14 +799,14 @@ func readSheetsFromZipFile(f *zip.File, file *File, sheetXMLMap map[string]strin
 	workbook = new(xlsxWorkbook)
 	rc, err = f.Open()
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 	defer rc.Close()
 
 	decoder = xml.NewDecoder(rc)
 	err = decoder.Decode(workbook)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 	file.Date1904 = workbook.WorkbookPr.Date1904
 
@@ -807,8 +823,10 @@ func readSheetsFromZipFile(f *zip.File, file *File, sheetXMLMap map[string]strin
 		}
 	}
 	sheetCount = len(workbookSheets)
-	sheetsByName := make(map[string]*Sheet, sheetCount)
-	sheets := make([]*Sheet, sheetCount)
+	if n := sheetCount - cap(file.Sheets); n > 0 {
+		file.Sheets = append(file.Sheets, make([]*Sheet, n)...)
+	}
+	file.Sheets = file.Sheets[:sheetCount]
 	sheetChan := make(chan *indexedSheet, sheetCount)
 
 	go func() {
@@ -824,14 +842,14 @@ func readSheetsFromZipFile(f *zip.File, file *File, sheetXMLMap map[string]strin
 	for j := 0; j < sheetCount; j++ {
 		sheet := <-sheetChan
 		if sheet.Error != nil {
-			return nil, nil, sheet.Error
+			return sheet.Error
 		}
 		sheetName := workbookSheets[sheet.Index].Name
-		sheetsByName[sheetName] = sheet.Sheet
 		sheet.Sheet.Name = sheetName
-		sheets[sheet.Index] = sheet.Sheet
+		file.Sheet[sheetName] = sheet.Sheet
+		file.Sheets[sheet.Index] = sheet.Sheet
 	}
-	return sheetsByName, sheets, nil
+	return nil
 }
 
 // readSharedStringsFromZipFile() is an internal helper function to
@@ -1018,19 +1036,17 @@ func ReadZipReaderWithRowLimit(r *zip.Reader, rowLimit int) (*File, error) {
 	var reftable *RefTable
 	var sharedStrings *zip.File
 	var sheetXMLMap map[string]string
-	var sheetsByName map[string]*Sheet
-	var sheets []*Sheet
 	var style *xlsxStyleSheet
 	var styles *zip.File
 	var themeFile *zip.File
 	var v *zip.File
 	var workbook *zip.File
 	var workbookRels *zip.File
-	var worksheets map[string]*zip.File
 
 	file = NewFile()
+	processed := 0
+	file.worksheets = file.worksheets[:cap(file.worksheets)]
 	// file.numFmtRefTable = make(map[int]xlsxNumFmt, 1)
-	worksheets = make(map[string]*zip.File, len(r.File))
 	for _, v = range r.File {
 		switch v.Name {
 		case "xl/sharedStrings.xml":
@@ -1046,7 +1062,12 @@ func ReadZipReaderWithRowLimit(r *zip.Reader, rowLimit int) (*File, error) {
 		default:
 			if len(v.Name) > 17 {
 				if v.Name[0:13] == "xl/worksheets" {
-					worksheets[v.Name[14:len(v.Name)-4]] = v
+					if len(file.worksheets) == processed {
+						file.worksheets = append(file.worksheets, &fileWorksheet{})
+					}
+					file.worksheets[processed].Name = v.Name[14 : len(v.Name)-4]
+					file.worksheets[processed].zipFile = v
+					processed++
 				}
 			}
 		}
@@ -1058,10 +1079,12 @@ func ReadZipReaderWithRowLimit(r *zip.Reader, rowLimit int) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(worksheets) == 0 {
+
+	file.worksheets = file.worksheets[:processed]
+	if len(file.worksheets) == 0 {
 		return nil, fmt.Errorf("Input xlsx contains no worksheets.")
 	}
-	file.worksheets = worksheets
+
 	reftable, err = readSharedStringsFromZipFile(sharedStrings)
 	if err != nil {
 		return nil, err
@@ -1083,17 +1106,15 @@ func ReadZipReaderWithRowLimit(r *zip.Reader, rowLimit int) (*File, error) {
 
 		file.styles = style
 	}
-	sheetsByName, sheets, err = readSheetsFromZipFile(workbook, file, sheetXMLMap, rowLimit)
+	err = readSheetsFromZipFile(workbook, file, sheetXMLMap, rowLimit)
 	if err != nil {
 		return nil, err
 	}
-	if sheets == nil {
+	if len(file.Sheets) == 0 {
 		readerErr := new(XLSXReaderError)
 		readerErr.Err = "No sheets found in XLSX File"
 		return nil, readerErr
 	}
-	file.Sheet = sheetsByName
-	file.Sheets = sheets
 	return file, nil
 }
 
