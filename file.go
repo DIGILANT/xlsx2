@@ -62,6 +62,7 @@ func ReleaseFile(file *File) {
 
 	file.DefinedNames = file.DefinedNames[:0]
 	file.theme = nil
+	file.styles = nil
 	file.referenceTable = nil
 	file.worksheets = file.worksheets[:0]
 
@@ -82,6 +83,8 @@ func OpenFileWithRowLimit(fileName string, rowLimit int) (file *File, err error)
 	if err != nil {
 		return nil, err
 	}
+	defer z.Close()
+
 	return ReadZipWithRowLimit(z, rowLimit)
 }
 
@@ -91,10 +94,19 @@ func OpenBinary(bs []byte) (*File, error) {
 	return OpenBinaryWithRowLimit(bs, NoRowLimit)
 }
 
+var byteReaderPool = sync.Pool{}
+
 // OpenBinaryWithRowLimit() take bytes of an XLSX file and returns a populated
 // xlsx.File struct for it.
 func OpenBinaryWithRowLimit(bs []byte, rowLimit int) (*File, error) {
-	r := bytes.NewReader(bs)
+	bri := byteReaderPool.Get()
+	if bri == nil {
+		bri = bytes.NewReader(nil)
+	}
+	r := bri.(*bytes.Reader)
+	r.Reset(bs)
+	defer byteReaderPool.Put(r)
+
 	return OpenReaderAtWithRowLimit(r, int64(r.Len()), rowLimit)
 }
 

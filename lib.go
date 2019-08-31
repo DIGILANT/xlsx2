@@ -1016,7 +1016,6 @@ func ReadZip(f *zip.ReadCloser) (*File, error) {
 // xlsx.File struct populated with its contents.  In most cases
 // ReadZip is not used directly, but is called internally by OpenFile.
 func ReadZipWithRowLimit(f *zip.ReadCloser, rowLimit int) (*File, error) {
-	defer f.Close()
 	return ReadZipReaderWithRowLimit(&f.Reader, rowLimit)
 }
 
