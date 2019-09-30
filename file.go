@@ -2,7 +2,6 @@ package xlsx
 
 import (
 	"archive/zip"
-	"bytes"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/digilant/bytebufferpool"
 )
 
 type fileWorksheet struct {
@@ -94,26 +95,32 @@ func OpenBinary(bs []byte) (*File, error) {
 	return OpenBinaryWithRowLimit(bs, NoRowLimit)
 }
 
-var byteReaderPool = sync.Pool{}
-
 // OpenBinaryWithRowLimit() take bytes of an XLSX file and returns a populated
 // xlsx.File struct for it.
 func OpenBinaryWithRowLimit(bs []byte, rowLimit int) (*File, error) {
-	bri := byteReaderPool.Get()
-	if bri == nil {
-		bri = bytes.NewReader(nil)
-	}
-	r := bri.(*bytes.Reader)
-	r.Reset(bs)
-	defer byteReaderPool.Put(r)
+	bf := bytebufferpool.Get()
+	defer bytebufferpool.Put(bf)
+	bf.Set(bs)
 
-	return OpenReaderAtWithRowLimit(r, int64(r.Len()), rowLimit)
+	return OpenReaderAtWithRowLimit(bf, int64(len(bs)), rowLimit)
 }
 
 // OpenReaderAt() take io.ReaderAt of an XLSX file and returns a populated
 // xlsx.File struct for it.
 func OpenReaderAt(r io.ReaderAt, size int64) (*File, error) {
 	return OpenReaderAtWithRowLimit(r, size, NoRowLimit)
+}
+
+func OpenReader(r io.Reader, size int64) (*File, error) {
+	bf := bytebufferpool.Get()
+	defer bytebufferpool.Put(bf)
+
+	n, err := bf.ReadFrom(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return OpenReaderAtWithRowLimit(bf, n, NoRowLimit)
 }
 
 // OpenReaderAtWithRowLimit() take io.ReaderAt of an XLSX file and returns a populated
