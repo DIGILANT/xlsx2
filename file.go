@@ -111,7 +111,7 @@ func OpenReaderAt(r io.ReaderAt, size int64) (*File, error) {
 	return OpenReaderAtWithRowLimit(r, size, NoRowLimit)
 }
 
-func OpenReader(r io.Reader, size int64) (*File, error) {
+func OpenReader(r io.Reader) (*File, error) {
 	bf := bytebufferpool.Get()
 	defer bytebufferpool.Put(bf)
 
